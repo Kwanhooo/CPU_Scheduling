@@ -31,14 +31,15 @@ Simulator::Simulator(QWidget *parent) :
 
     timer = new QTimer(this);
     connect(timer, &QTimer::timeout, this, &Simulator::automaticRun);
-    this->timeScale = 10;
+    this->timeScale = 100;
 
-    ui->spinBox_timeScale->setValue(timeScale);
+    ui->lineEdit_timeScale->setText(QString::number(timeScale));
     ui->spinBox_IORate->setValue(this->randomlyEventRate);
     ui->spinBox_timeSlice->setValue(this->TIME_SLICE);
     ui->spinBox_maxProcAmount->setValue(this->MAX_PROGRAM_AMOUNT);
     ui->spinBox_autoIOGap->setValue(this->autoIOGap);
     ui->label_rotation->setVisible(false);
+    ui->label_IO_icon->setVisible(false);
 }
 
 //接受启动模式的槽函数
@@ -82,11 +83,11 @@ void Simulator::refreshReadyUI()
     {
         if(this->startMode == ROUND_ROBIN)
             readyStringList<<"PID:"+QString::number(readyList.at(i)->getPid())+"\n"+
-                             "所需时长:"+QString::number(readyList.at(i)->getCalUseTime())+"\n";
+                             "剩余运行时长:"+QString::number(readyList.at(i)->getCalUseTime())+"\n";
         else
             readyStringList<<"PID:"+QString::number(readyList.at(i)->getPid())+"\n"+
-                             "所需时长:"+QString::number(readyList.at(i)->getCalUseTime())+"\n"
-                                                                                       "优先级:"+QString::number(readyList.at(i)->getPriority())+"\n";
+                             "剩余运行时长:"+QString::number(readyList.at(i)->getCalUseTime())+"\n"
+                                                                                         "优先级:"+QString::number(readyList.at(i)->getPriority())+"\n";
     }
     QStringListModel* readyStringListModel = new QStringListModel(readyStringList);
     ui->listView_ready->setModel(readyStringListModel);
@@ -122,11 +123,11 @@ void Simulator::refreshTerminatedUI()
     {
         if(startMode == ROUND_ROBIN)
             terminatedStringList<<"PID:"+QString::number(terminatedList.at(i)->getPid())+"\n"+
-                                  "所需时长:"+QString::number(terminatedList.at(i)->getNeededTime())+"\n";
+                                  "总消耗时长:"+QString::number(terminatedList.at(i)->getNeededTime())+"\n";
         else
             terminatedStringList<<"PID:"+QString::number(terminatedList.at(i)->getPid())+"\n"+
-                                  "所需时长:"+QString::number(terminatedList.at(i)->getNeededTime())+"\n"
-                                                                                                 "优先级:"+QString::number(terminatedList.at(i)->getPriority())+"\n";
+                                  "总消耗时长:"+QString::number(terminatedList.at(i)->getNeededTime())+"\n"
+                                                                                                  "优先级:"+QString::number(terminatedList.at(i)->getPriority())+"\n";
     }
     QStringListModel* terminatedStringListModel = new QStringListModel(terminatedStringList);
     ui->listView_terminated->setModel(terminatedStringListModel);
@@ -276,6 +277,7 @@ void Simulator::ramdomlyEvent()
     default:runningProc->eventType = "ERROR";
     }
     runningProc = nullptr;
+    ui->label_rotation->setVisible(true);
     resetRunningUI();
 }
 
@@ -299,15 +301,18 @@ void Simulator::refreshWaitingUI()
 
 void Simulator::refreshIOUI()
 {
+    if(!IOList.isEmpty())
+        ui->label_IO_icon->setVisible(true);
+    else ui->label_IO_icon->setVisible(false);
     QStringList IOStringList;
     for (int i = 0;i < this->IOList.length(); i++)
     {
         if(startMode == ROUND_ROBIN)
             IOStringList<<"PID:"+QString::number(IOList.at(i)->getPid())+"\n"+
-                          "剩余时长:"+QString::number(IOList.at(i)->getCalUseTime())+"            "+"申请IO:"+IOList.at(i)->eventType+"\n";
+                          "剩余时长:"+QString::number(IOList.at(i)->getCalUseTime())+"         "+"申请IO:"+IOList.at(i)->eventType+"\n";
         else
             IOStringList<<"PID:"+QString::number(IOList.at(i)->getPid())+"\n"+
-                          "剩余时长:"+QString::number(IOList.at(i)->getCalUseTime())+"            "+"申请IO:"+IOList.at(i)->eventType+"\n"+
+                          "剩余时长:"+QString::number(IOList.at(i)->getCalUseTime())+"         "+"申请IO:"+IOList.at(i)->eventType+"\n"+
                           "优先级:"+QString::number(IOList.at(i)->getPriority())+"\n";
     }
     QStringListModel* IOStringListModel = new QStringListModel(IOStringList);
@@ -507,6 +512,7 @@ void Simulator::nonPriorityAction()
             if(this->readyList.isEmpty())
             {
                 resetRunningUI();
+                ui->label_rotation->setVisible(false);
                 addLog("全部进程已执行完毕！");
             }
         }
@@ -533,9 +539,12 @@ void Simulator::nonPriorityAction()
             if(this->readyList.isEmpty())
             {
 
-                addLog("全部进程已执行完毕！");
                 if(IOList.isEmpty())
+                {
+                    addLog("全部进程已执行完毕！");
+                    ui->label_rotation->setVisible(false);
                     timer->stop();
+                }
                 else
                     IOAll();
             }
@@ -545,7 +554,7 @@ void Simulator::nonPriorityAction()
     foreach(PCB* pcb,readyList)
     {
         pcb->waitingTimeInc();
-        if(pcb->getWaitingTime() >= 40)
+        if(pcb->getWaitingTime() >= agingTime)
         {
             this->addLog("PID:"+QString::number(pcb->getPid())+" -> 等待时间超过阈值，老化"+"\n\t\t"+
                          "目前优先级:"+QString::number(pcb->getPriority()));
@@ -570,25 +579,6 @@ void Simulator::preemptiveProrityAction()
         this->runningProc->timeDecline();
         addLog("PID:"+QString::number(runningProc->getPid())+" -> 运行了一个时间单位"+"\n\t\t"
                                                                              "剩余运行时间:"+QString::number(runningProc->getCalUseTime()));
-        //        if(runningProc->isTerminated())
-        //        {
-        //            addLog("PID:"+QString::number(runningProc->getPid())+" -> 现已终结"+"\n\t\t"
-        //                                                                            "总耗时:"+QString::number(runningProc->getNeededTime()));
-        //            this->terminatedList.append(runningProc);
-        //            refreshRunningUI();
-        //            refreshTerminatedUI();
-        //            this->runningProc = nullptr;
-        //            if(this->readyList.isEmpty())
-        //            {
-        //                QStringListModel* clearModel = new QStringListModel();
-        //                ui->listView_running->setModel(clearModel);
-        //                addLog("全部进程已执行完毕！");
-        //                if(IOList.isEmpty())
-        //                    timer->stop();
-        //                else
-        //                    IOAll();
-        //            }
-        //        }
         if(runningProc->isTerminated())
         {
             addLog("PID:"+QString::number(runningProc->getPid())+" -> 现已终结"+"\n\t\t"
@@ -599,9 +589,13 @@ void Simulator::preemptiveProrityAction()
             resetRunningUI();
             if(this->readyList.isEmpty())
             {
-                addLog("全部进程已执行完毕！");
+
                 if(IOList.isEmpty())
+                {
                     timer->stop();
+                    ui->label_rotation->setVisible(false);
+                    addLog("全部进程已执行完毕！");
+                }
                 else
                     IOAll();
             }
@@ -619,6 +613,7 @@ void Simulator::preemptiveProrityAction()
             if(topPriorityReady->getPriority() < this->runningProc->getPriority())//如果找到了新的高优先
             {
                 //把旧的赶下来
+                addLog("PID:"+QString::number(runningProc->getPid()) + " 的优先级低于 PID:" + QString::number(topPriorityReady->getPid())+"\n\t\t"+"发生抢占!");
                 this->readyList.append(this->runningProc);
                 this->runningProc = nullptr;
                 ui->label_rotation->setVisible(true);
@@ -634,25 +629,6 @@ void Simulator::preemptiveProrityAction()
         addLog("PID:"+QString::number(runningProc->getPid())+" -> 运行了一个时间单位"+"\n\t\t"
                                                                              "剩余运行时间:"+QString::number(runningProc->getCalUseTime()));
         refreshRunningUI();
-        //        if(runningProc->isTerminated())
-        //        {
-        //            addLog("PID:"+QString::number(runningProc->getPid())+" -> 现已终结"+"\n\t\t"
-        //                                                                            "总耗时:"+QString::number(runningProc->getNeededTime()));
-        //            this->terminatedList.append(runningProc);
-        //            refreshRunningUI();
-        //            refreshTerminatedUI();
-        //            this->runningProc = nullptr;
-        //            if(this->readyList.isEmpty())
-        //            {
-        //                QStringListModel* clearModel = new QStringListModel();
-        //                ui->listView_running->setModel(clearModel);
-        //                addLog("全部进程已执行完毕！");
-        //                if(IOList.isEmpty())
-        //                    timer->stop();
-        //                else
-        //                    IOAll();
-        //            }
-        //        }
         if(runningProc->isTerminated())
         {
             addLog("PID:"+QString::number(runningProc->getPid())+" -> 现已终结"+"\n\t\t"
@@ -664,9 +640,13 @@ void Simulator::preemptiveProrityAction()
             resetRunningUI();
             if(this->readyList.isEmpty())
             {
-                addLog("全部进程已执行完毕！");
+
                 if(IOList.isEmpty())
+                {
+                    addLog("全部进程已执行完毕！");
+                    ui->label_rotation->setVisible(false);
                     timer->stop();
+                }
                 else
                     IOAll();
             }
@@ -676,7 +656,7 @@ void Simulator::preemptiveProrityAction()
     foreach(PCB* pcb,readyList)
     {
         pcb->waitingTimeInc();
-        if(pcb->getWaitingTime() >= 40)
+        if(pcb->getWaitingTime() >= agingTime)
         {
             this->addLog("PID:"+QString::number(pcb->getPid())+" -> 等待时间超过阈值，老化"+"\n\t\t"+
                          "目前优先级:"+QString::number(pcb->getPriority()));
@@ -695,31 +675,12 @@ void Simulator::roundRobinAction()
         if(readyList.isEmpty())
             return;
         this->runningProc = this->readyList.takeFirst();
-         ui->label_rotation->setVisible(false);
+        ui->label_rotation->setVisible(false);
         this->runningProc->timeDecline();
         this->runningProc->usedTimeSliceInc();
         addLog("PID:"+QString::number(runningProc->getPid())+" -> 运行了一个时间单位"+"\n\t\t"
                                                                              "剩余运行时间:"+QString::number(runningProc->getCalUseTime())+"\n\t\t"
                + "剩余时间片:"+QString::number(this->TIME_SLICE - runningProc->getUsedTimeSlice()));
-        //        if(runningProc->isTerminated())
-        //        {
-        //            addLog("PID:"+QString::number(runningProc->getPid())+" -> 现已终结"+"\n\t\t"
-        //                                                                            "总耗时:"+QString::number(runningProc->getNeededTime()));
-        //            this->terminatedList.append(runningProc);
-        //            refreshRunningUI();
-        //            refreshTerminatedUI();
-        //            this->runningProc = nullptr;
-        //            if(this->readyList.isEmpty())
-        //            {
-        //                QStringListModel* clearModel = new QStringListModel();
-        //                ui->listView_running->setModel(clearModel);
-        //                addLog("全部进程已执行完毕！");
-        //                if(IOList.isEmpty())
-        //                    timer->stop();
-        //                else
-        //                    IOAll();
-        //            }
-        //        }
         if(runningProc->isTerminated())
         {
             addLog("PID:"+QString::number(runningProc->getPid())+" -> 现已终结"+"\n\t\t"
@@ -789,7 +750,8 @@ void Simulator::roundRobinAction()
             if(runningProc->getUsedTimeSlice() >= this->TIME_SLICE)//用完了所有的时间片
             {
                 addLog("PID:"+QString::number(runningProc->getPid())+" -> 用完了所有的时间片"+"\n\t\t"
-                       "剩余运行时间:"+QString::number(runningProc->getCalUseTime()));
+                                                                                     "剩余运行时间:"+QString::number(runningProc->getCalUseTime())+"\n\t\t"
+                       +"发生轮转");
                 this->runningProc->resetUsedTimeSlice();
                 if(!readyList.isEmpty())
                 {
@@ -802,7 +764,9 @@ void Simulator::roundRobinAction()
                 {
                     addLog("PID:"+QString::number(runningProc->getPid())+" -> 不限制此次时间片"+"\n\t\t"
                                                                                         "剩余运行时间:"+QString::number(runningProc->getCalUseTime())+"\n\t\t"
-                           + "剩余时间片:"+QString::number(this->TIME_SLICE - runningProc->getUsedTimeSlice()));
+                           + "剩余时间片:"+QString::number(this->TIME_SLICE - runningProc->getUsedTimeSlice())
+                           +"\n\t\t"
+                           +"发生轮转");
                     this->runningProc->resetUsedTimeSlice();
                 }
             }
@@ -970,12 +934,6 @@ void Simulator::on_pushButton_auto_stop_clicked()
     timer->stop();
 }
 
-void Simulator::on_spinBox_valueChanged(int arg1)
-{
-    timer->stop();
-    this->timeScale = arg1;
-}
-
 void Simulator::on_spinBox_autoIOGap_valueChanged(int arg1)
 {
     timer->stop();
@@ -998,4 +956,12 @@ void Simulator::on_spinBox_maxProcAmount_valueChanged(const QString &arg1)
 {
     timer->stop();
     this->MAX_PROGRAM_AMOUNT = arg1.toInt();
+}
+
+
+void Simulator::on_lineEdit_timeScale_textChanged(const QString &arg1)
+{
+    this->timer->stop();
+    this->timeScale = arg1.toInt();
+    this->timer->start(this->timeScale);
 }

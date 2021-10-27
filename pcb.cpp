@@ -89,7 +89,7 @@ bool PCB::isTerminated()
 
 void PCB::aging()
 {
-    this->priority = this->priority + 1;
+    this->priority = this->priority - 1;
 }
 
 void PCB::waitingTimeInc()
